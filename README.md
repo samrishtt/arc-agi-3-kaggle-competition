@@ -1,6 +1,6 @@
 # ARC-AGI-3 Forge v3 + Heuristic Solver
 
-This repository contains my custom implementation for the ARC Prize 2026 (ARC-AGI-3) Kaggle competition.
+This repository contains my Kaggle competition workspace for the ARC Prize 2026 (ARC-AGI-3) Kaggle competition.
 
 ## Attribution & Origins
 
