@@ -4,12 +4,7 @@
 Kaggle submission notebook, so your local dev loop and your Kaggle
 submission stay in lock-step:
 
-    [edit my_agent.py] → [make play-local] → [make submit]
-
-The default body below is a port of the Stochastic Goose / random_agent
-sample — a known-good baseline that produces a valid submission and
-proves your end-to-end pipeline works. Replace `choose_action` with your
-real strategy.
+    [edit my_agent.py] -> [make play-local] -> [make submit]
 
 Contract (enforced by the ARC-AGI-3-Agents framework):
   - Subclass `agents.agent.Agent`.
@@ -31,7 +26,7 @@ from agents.agent import Agent
 
 
 class MyAgent(Agent):
-    """Picks legal actions uniformly at random. Replace with your strategy."""
+    """A heuristic explorer that avoids repeating ineffective actions."""
 
     # Upper bound on actions per game; the framework also enforces global limits.
     MAX_ACTIONS = 80
@@ -42,46 +37,62 @@ class MyAgent(Agent):
         # different games explore independently.
         seed = int(time.time() * 1_000_000) + hash(self.game_id) % 1_000_000
         random.seed(seed)
+        
+        # Track bad actions for a specific state representation
+        self.bad_actions_for_state: dict[str, set[GameAction]] = {}
+        # Track the last action we took
+        self.last_action: GameAction | None = None
+        # Track the last state we were in
+        self.last_state_hash: str | None = None
 
     @property
     def name(self) -> str:
-        return f"{super().name}.{self.MAX_ACTIONS}"
+        return f"{super().name}.HeuristicExplorer"
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
         # Stop once we win. Don't stop on GAME_OVER — we want to RESET and retry.
         return latest_frame.state is GameState.WIN
 
+    def _hash_frame(self, frame_data: FrameData) -> str:
+        """Create a simple hash/string representation of the grid."""
+        if not frame_data.frame:
+            return ""
+        return str(frame_data.frame)
+
     def choose_action(
         self, frames: list[FrameData], latest_frame: FrameData
     ) -> GameAction:
-        # First call or after a death → reset the level.
+        # First call or after a death -> reset the level.
         if latest_frame.state in (GameState.NOT_PLAYED, GameState.GAME_OVER):
+            self.last_action = None
+            self.last_state_hash = None
             return GameAction.RESET
 
-        # ── Per-game strategy fork ───────────────────────────────────────────
-        # By default every game uses the same uniformly-random strategy in the
-        # `else` branch below. This `if` shows ONE example of giving a single
-        # game its own heuristic: on LS20 we bias the random pick so ACTION4
-        # is twice as likely as any other action. Add more `elif` branches to
-        # specialize other games.
-        #
-        # `self.game_id` is set by the framework. It may be the short id
-        # ("ls20") or include a version suffix ("ls20-9607627b"), so we
-        # compare on the prefix to be safe.
-        candidate_actions = [a for a in GameAction if a is not GameAction.RESET]
-        if self.game_id.split("-")[0] == "ls20":
-            weights = [2 if a is GameAction.ACTION4 else 1 for a in candidate_actions]
-            action = random.choices(candidate_actions, weights=weights, k=1)[0]
-        else:
-            action = random.choice(candidate_actions)
-        # ────────────────────────────────────────────────────────────────────
+        current_state_hash = self._hash_frame(latest_frame)
 
-        if action.is_complex():
-            # ACTION6 takes (x, y) coordinates on a 64×64 grid.
-            action.set_data(
-                {"x": random.randint(0, 63), "y": random.randint(0, 63)}
-            )
-            action.reasoning = {"why": "random complex action"}
-        else:
-            action.reasoning = f"random simple action: {action.value}"
+        # Update heuristics if we have a history
+        if self.last_state_hash is not None and self.last_action is not None:
+            if current_state_hash == self.last_state_hash:
+                # The action did not change the state (e.g. walked into a wall)
+                if self.last_state_hash not in self.bad_actions_for_state:
+                    self.bad_actions_for_state[self.last_state_hash] = set()
+                self.bad_actions_for_state[self.last_state_hash].add(self.last_action)
+
+        # For our basic explorer, only use simple actions (non-coordinate based)
+        candidate_actions = [a for a in GameAction if a is not GameAction.RESET and not a.is_complex()]
+        
+        # Filter out bad actions for the current state
+        bad_actions = self.bad_actions_for_state.get(current_state_hash, set())
+        valid_actions = [a for a in candidate_actions if a not in bad_actions]
+        
+        # If all simple actions are bad (we're stuck), just pick random again or try complex if implemented
+        if not valid_actions:
+            valid_actions = candidate_actions
+            
+        action = random.choice(valid_actions)
+        
+        self.last_action = action
+        self.last_state_hash = current_state_hash
+
+        action.reasoning = f"heuristic explorer chose: {action.value}"
         return action

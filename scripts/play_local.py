@@ -111,7 +111,7 @@ def main() -> None:
         final = agent.frames[-1]
         per_game.append((game_id, final.state, final.levels_completed,
                          agent.action_counter))
-        print(f"  → state={final.state}, levels_completed={final.levels_completed}, "
+        print(f"  -> state={final.state}, levels_completed={final.levels_completed}, "
               f"actions={agent.action_counter}")
 
     sc = arc.get_scorecard()
