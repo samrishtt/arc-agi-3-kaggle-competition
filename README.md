@@ -2,6 +2,24 @@
 
 This repository contains my custom implementation for the ARC Prize 2026 (ARC-AGI-3) Kaggle competition.
 
+## Attribution & Origins
+
+This project is built upon and inspired by the following open-source solutions:
+- **Built on Forge v3**: Originally developed by [jihangli1121](https://github.com/jihangli1121). It serves as the core engine, utilizing curriculum learning via template injection (CLTI) and online training of a convolutional neural network (ForgeNet) combined with A*/BFS navigation heuristics.
+- **No-Error Heartbeat**: Copied and adapted from [Yaroslav kholmirzayev](https://github.com/Yaroslav-kholmirzayev). It features beam search, MCTS, and novelty guidance heuristics.
+
+## Results
+
+Here are the leaderboard submission results of the different iterations/approaches evaluated on the ARC-AGI-3 test set:
+
+| Version / Approach | Public Score | Notes / Labels |
+|---|---|---|
+| **Early Baseline** | **0.06** | Initial basic heuristic search attempt. |
+| **No-Error Heartbeat** | **0.26** | Adapted from Yaroslav kholmirzayev. High complexity (beam search, MCTS, novelty guidance), but limited by execution constraints or overfitting on complex puzzles. |
+| **Forge v3** | **0.42** | Built on Forge v3 by jihangli1121. BFS + online CNN (ForgeNet) with dynamic curriculum learning. Best performing core solver. |
+
+---
+
 ## Architecture
 
 The solver uses **Forge v3** as the core agent framework, which is built on top of the official `ARC-AGI-3-Agents` framework. 
