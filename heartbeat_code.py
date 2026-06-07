@@ -1,9 +1,16 @@
+# --- Cell 0 ---
+!pip install --no-index --find-links \
+    /kaggle/input/competitions/arc-prize-2026-arc-agi-3/arc_agi_3_wheels \
+    arc-agi python-dotenv
+
+# --- Cell 1 ---
+%%writefile /kaggle/working/my_agent.py
 # =====================================================================
-# MASTER BASELINE v10 â€” mynotebook_5 + MCTS Phase 7 (30s fixed cap, beam UNCHANGED)
+# MASTER BASELINE v10 — mynotebook_5 + MCTS Phase 7 (30s fixed cap, beam UNCHANGED)
 #
 # Built by merging the best parts of 6 top public notebooks:
 #
-# CORE: FORGE v19 (op_2) â€” most advanced BFS engine:
+# CORE: FORGE v19 (op_2) — most advanced BFS engine:
 #   - A* search with game introspection heuristic (indicator sprites)
 #   - Transient field detection (avoids state explosion from counters)
 #   - _get_valid_actions() for correct click coordinate detection
@@ -14,7 +21,7 @@
 #
 # ADDITIONS from FORGE v17 (op_3):
 #   - Beam search fallback (width 20-200, depth 60)
-#   - Sprite permutation for click-only games â‰¤8 sprites
+#   - Sprite permutation for click-only games ≤8 sprites
 #   - Stride-1 neighbor click probing (catch odd-coordinate sprites)
 #   - Prioritized experience replay (recent + high-reward weighted)
 #   - Adaptive BFS time budget
@@ -53,11 +60,6 @@ import torch.optim as optim
 from agents.agent import Agent
 from arcengine import FrameData, GameAction, GameState, ActionInput
 
-import copyreg
-def pickle_game_action(action):
-    return (GameAction.from_id, (action.value,))
-copyreg.pickle(GameAction, pickle_game_action)
-
 logger = logging.getLogger(__name__)
 
 
@@ -91,10 +93,8 @@ class BFSSolver:
 
     def load(self):
         try:
-            import sys
             spec = importlib.util.spec_from_file_location('game_mod', self.game_path)
             mod = importlib.util.module_from_spec(spec)
-            sys.modules['game_mod'] = mod
             spec.loader.exec_module(mod)
             self.game_cls = getattr(mod, self.class_name)
             return True
@@ -148,7 +148,7 @@ class BFSSolver:
                       if not f.startswith('_') or f in ('_current_level_index', '_score'))
 
     def _detect_transient_fields(self, game, actions):
-        """Fields that change on EVERY action â€” e.g. budget counters. Exclude from hash."""
+        """Fields that change on EVERY action — e.g. budget counters. Exclude from hash."""
         if not actions:
             return set()
         ignore = {'_action_count', '_full_reset', '_action_complete'}
@@ -525,7 +525,7 @@ class BFSSolver:
         # ---- Phase 2: Dynamic rescan (flood-fill games) ----
         exhausted_quickly = len(pq) == 0 and elapsed_first < self.bfs_timeout * 0.5
         if exhausted_quickly:
-            logger.info(f"BFS L{level_idx}: queue exhausted early â€” dynamic rescan")
+            logger.info(f"BFS L{level_idx}: queue exhausted early — dynamic rescan")
             visited_d = {self._state_hash(base_game, f0, transient_fields=transient_fields)}
             queue_d = deque([([], 0, base_game)])
             current_actions = list(actions)
@@ -659,7 +659,7 @@ class BFSSolver:
                         stack.append((g2, new_hist, path_hashes | {fh}))
             logger.info(f"BFS L{level_idx}: IDDFS exhausted")
 
-        # ---- Phase 5: Sprite permutation (click-only games with â‰¤8 targets) ----
+        # ---- Phase 5: Sprite permutation (click-only games with ≤8 targets) ----
         elapsed_p4 = time.time() - t0
         remaining_perm = max(20, self.bfs_timeout - elapsed_p4)
         click_actions = [a for a in actions if a[0] == 6]
@@ -1179,7 +1179,7 @@ class MyAgent(Agent):
         s.net = None
         s.opt = None
 
-        # Replay buffer â€” prioritized (recent + high-reward weighted)
+        # Replay buffer — prioritized (recent + high-reward weighted)
         s.buf = deque(maxlen=50000)
         s.buf_h = set()
         s.bsz = 64
@@ -1533,7 +1533,7 @@ class MyAgent(Agent):
             cnt = s._visit_counts[key]
             score = 1.0 / math.sqrt(cnt + 1)
             scored.append((score, act_id, data))
-        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        scored.sort(reverse=True)
         probs = np.array([x[0] for x in scored], dtype=np.float64)
         probs = probs / probs.sum()
         idx = int(np.random.choice(len(scored), p=probs))
@@ -1835,4 +1835,39 @@ class MyAgent(Agent):
             a = random.choice(s.al)
             a.reasoning = f"err:{str(e)[:40]}"
             return a
+
+# --- Cell 2 ---
+import os
+if os.getenv('KAGGLE_IS_COMPETITION_RERUN'):
+    !curl --fail --retry 999 --retry-all-errors --retry-delay 5 --retry-max-time 600 http://gateway:8001/api/games
+    !cp -r /kaggle/input/competitions/arc-prize-2026-arc-agi-3/ARC-AGI-3-Agents /kaggle/working/ARC-AGI-3-Agents
+    !cp /kaggle/working/my_agent.py /kaggle/working/ARC-AGI-3-Agents/agents/templates/my_agent.py
+    with open('/kaggle/working/ARC-AGI-3-Agents/agents/__init__.py', 'w') as f:
+        f.write("""from typing import Type
+from dotenv import load_dotenv
+from .agent import Agent, Playback
+from .swarm import Swarm
+from .templates.random_agent import Random
+from .templates.my_agent import MyAgent
+load_dotenv()
+AVAILABLE_AGENTS: dict[str, Type[Agent]] = {"random": Random, "myagent": MyAgent}
+""")
+    with open('/kaggle/working/ARC-AGI-3-Agents/.env', 'w') as f:
+        f.write("""SCHEME=http
+HOST=gateway
+PORT=8001
+ARC_API_KEY=test-key-123
+ARC_BASE_URL=http://gateway:8001/
+OPERATION_MODE=online
+RECORDINGS_DIR=/kaggle/working/server_recording
+""")
+    !cd /kaggle/working/ARC-AGI-3-Agents && MPLBACKEND=agg python main.py --agent myagent
+
+# --- Cell 3 ---
+import os
+if not os.getenv('KAGGLE_IS_COMPETITION_RERUN'):
+    import pandas as pd
+    submission = pd.DataFrame(data=[['1_0', '1', True, 1]],
+                              columns=['row_id', 'game_id', 'end_of_game', 'score'])
+    submission.to_parquet('/kaggle/working/submission.parquet', index=False)
 
