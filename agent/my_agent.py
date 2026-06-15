@@ -1,34 +1,23 @@
 # =====================================================================
-# MASTER BASELINE v10 â€” mynotebook_5 + MCTS Phase 7 (30s fixed cap, beam UNCHANGED)
+# MASTER BASELINE v11 — Trigger-Aware BFS + ACMD + CNN Fallback
+#
+# v11 changes from v10:
+#   - FIX #1: Hidden field probing moved BEFORE Phase 1 (was Phase 3)
+#     → A* now uses trigger-aware hashing from the start
+#   - FIX #2: Clock field elimination prevents state explosion from timers
+#   - FIX #3: CBAM removed from ForgeNet (pretrained weight mismatch)
+#   - FIX #4: MCTS f-string double-brace bug fixed (log signals restored)
+#   - FIX #5: _state_hash selective mode (hidden_fields actually used)
+#   - NEW: ACMD counter search (Phase 3) for threshold-gated games
+#   - All phases now use trigger-aware hashing consistently
 #
 # Built by merging the best parts of 6 top public notebooks:
 #
-# CORE: FORGE v19 (op_2) â€” most advanced BFS engine:
-#   - A* search with game introspection heuristic (indicator sprites)
-#   - Transient field detection (avoids state explosion from counters)
-#   - _get_valid_actions() for correct click coordinate detection
-#   - Dynamic action rescan BFS (for flood-fill games)
-#   - Object model tracking (static/dynamic classification)
-#   - _fast_deepcopy (skips camera for 2-3x faster copying)
-#   - Level advancement by action replay (correct for multi-level)
-#
-# ADDITIONS from FORGE v17 (op_3):
-#   - Beam search fallback (width 20-200, depth 60)
-#   - Sprite permutation for click-only games â‰¤8 sprites
-#   - Stride-1 neighbor click probing (catch odd-coordinate sprites)
-#   - Prioritized experience replay (recent + high-reward weighted)
-#   - Adaptive BFS time budget
-#
-# ADDITIONS from MCTS notebook (op_5):
-#   - Click masking during CNN inference (only predict known-effective positions)
-#   - Novelty-guided action selection during exploration phase
-#
-# ALL v19 BUG FIXES:
-#   - _visited_hashes properly initialized in __init__
-#   - 2 RESET calls (not 3) in BFS hidden retry
-#   - Epsilon only resets when BFS actually failed
-#   - FIX: frame extraction uses perform_action result throughout
-# =====================================================================
+# CORE: FORGE v19 (op_2) — most advanced BFS engine
+# ADDITIONS: FORGE v17 (op_3) — beam search, sprite permutation
+# ADDITIONS: MCTS notebook (op_5) — click masking, novelty guidance
+# ADDITIONS: FORGE v16 — trigger-aware BFS, ACMD counter search
+# ===================================================================================
 import copy
 import glob
 import hashlib
@@ -105,7 +94,18 @@ class BFSSolver:
     # ---- state hashing ----
 
     def _state_hash(self, g, frame, hidden_fields=None, transient_fields=None):
-        fh = str(hash(frame.tobytes()))
+        """Hash frame pixels + selected hidden fields.
+        
+        When hidden_fields is provided, ONLY those fields are included in the
+        hash (selective mode — prevents state explosion from irrelevant fields).
+        When hidden_fields is None, falls back to hashing ALL scalar fields
+        (minus transient/ignored ones) for broad state distinction.
+        """
+        fh = hash(frame.tobytes())  # builtin hash, 5x faster than MD5
+        if hidden_fields:
+            # Selective mode: only hash the specific trigger fields
+            return (fh, tuple(getattr(g, f, None) for f in hidden_fields))
+        # Broad mode: hash all scalar fields (minus transient/ignored)
         ignore = {'_action_count', '_full_reset', '_action_complete', '_debug', '_seed'}
         if transient_fields:
             ignore.update(transient_fields)
@@ -118,8 +118,7 @@ class BFSSolver:
             elif isinstance(v, (set, frozenset)) and len(v) < 50:
                 extras.append(f"{k}={sorted(str(i) for i in v)}")
         if extras:
-            eh = str(hash("|".join(sorted(extras))))
-            return fh + "|" + eh
+            return (fh, tuple(sorted(extras)))
         return fh
 
     # ---- hidden / transient field detection ----
@@ -473,13 +472,46 @@ class BFSSolver:
             return None
 
         transient_fields = self._detect_transient_fields(game, actions)
+
+        # ---- UPFRONT: Probe trigger fields BEFORE Phase 1 (0.35 agent strategy) ----
+        # This is the #1 impact fix: running hidden field detection here instead of
+        # Phase 3 means A* uses correct trigger-aware hashing from the start.
+        trigger_fields = None
+        raw_hidden = self._probe_hidden_fields(game, actions)
+        if raw_hidden:
+            # Clock field elimination: fields that change on EVERY repeated action
+            # are timers/budgets, not meaningful triggers. Exclude them.
+            clock_fields = set()
+            if actions:
+                try:
+                    g_t1 = _fast_deepcopy(game)
+                    ai_t = (ActionInput(id=GameAction.from_id(actions[0][0]), data=actions[0][1])
+                            if actions[0][1] else ActionInput(id=GameAction.from_id(actions[0][0])))
+                    g_t1.perform_action(ai_t, raw=True)
+                    g_t2 = _fast_deepcopy(g_t1)
+                    g_t2.perform_action(ai_t, raw=True)
+                    for fld in raw_hidden:
+                        v1 = getattr(g_t1, fld, None)
+                        v2 = getattr(g_t2, fld, None)
+                        if v1 != v2:  # changed between identical actions → clock/timer
+                            clock_fields.add(fld)
+                except:
+                    pass
+            trigger_fields = [fld for fld in raw_hidden if fld not in clock_fields]
+            if not trigger_fields:
+                trigger_fields = None
+            else:
+                logger.info(f"BFS L{level_idx}: trigger fields for hash: {trigger_fields} "
+                            f"(eliminated clocks: {clock_fields})")
+
         hfn = goal_heuristic if goal_heuristic is not None else (lambda f, game=None: 0)
         _hfn_uses_game = goal_heuristic is not None
 
-        # ---- Phase 1: A* search ----
+        # ---- Phase 1: A* search (now with trigger-aware hashing from the start) ----
         visited = set()
         base_game = _fast_deepcopy(game)
-        h0 = self._state_hash(game, f0, transient_fields=transient_fields)
+        h0 = self._state_hash(game, f0, hidden_fields=trigger_fields,
+                              transient_fields=transient_fields)
         visited.add(h0)
         counter = 0
         pq = [(hfn(f0, game) * 10, 0, counter, [], base_game)]
@@ -500,7 +532,8 @@ class BFSSolver:
                 if not r.frame:
                     continue
                 f = np.array(r.frame[-1])
-                h = self._state_hash(g2, f, transient_fields=transient_fields)
+                h = self._state_hash(g2, f, hidden_fields=trigger_fields,
+                                     transient_fields=transient_fields)
                 if h in visited:
                     continue
                 visited.add(h)
@@ -525,8 +558,9 @@ class BFSSolver:
         # ---- Phase 2: Dynamic rescan (flood-fill games) ----
         exhausted_quickly = len(pq) == 0 and elapsed_first < self.bfs_timeout * 0.5
         if exhausted_quickly:
-            logger.info(f"BFS L{level_idx}: queue exhausted early â€” dynamic rescan")
-            visited_d = {self._state_hash(base_game, f0, transient_fields=transient_fields)}
+            logger.info(f"BFS L{level_idx}: queue exhausted early — dynamic rescan")
+            visited_d = {self._state_hash(base_game, f0, hidden_fields=trigger_fields,
+                                          transient_fields=transient_fields)}
             queue_d = deque([([], 0, base_game)])
             current_actions = list(actions)
             t0_d = time.time()
@@ -547,7 +581,8 @@ class BFSSolver:
                     if not r.frame:
                         continue
                     f2 = np.array(r.frame[-1])
-                    h_d = self._state_hash(g2_d, f2, transient_fields=transient_fields)
+                    h_d = self._state_hash(g2_d, f2, hidden_fields=trigger_fields,
+                                           transient_fields=transient_fields)
                     if h_d in visited_d:
                         continue
                     visited_d.add(h_d)
@@ -570,26 +605,28 @@ class BFSSolver:
                     if depth_d < 30:
                         queue_d.append((new_hist_d, depth_d + 1, g2_d))
 
-        # ---- Phase 3: Hidden fields retry ----
+        # ---- Phase 3: ACMD Trigger Search (counter-threshold games) ----
+        # Replaces the old redundant "hidden fields retry". Uses trigger field
+        # delta as priority to solve games where a counter must reach N.
         elapsed_p2 = time.time() - t0
-        if (explored > 0 and (len(visited) < 200 or explored / len(visited) > 5)
+        if (trigger_fields and len(visited) < 200
                 and elapsed_p2 < self.bfs_timeout * 0.8):
-            hidden_fields = self._probe_hidden_fields(game, actions)
-            if hidden_fields:
-                logger.info(f"BFS L{level_idx}: RETRY with hidden fields: {hidden_fields}")
-                game2, last_r2 = self._init_game_at_level(level_idx)
-                if game2 is None or not last_r2.frame:
-                    return None
+            logger.info(f"BFS L{level_idx}: ACMD trigger search with fields: {trigger_fields}")
+            game2, last_r2 = self._init_game_at_level(level_idx)
+            if game2 is not None and last_r2 and last_r2.frame:
                 f0_2 = np.array(last_r2.frame[-1])
-                visited2 = {self._state_hash(game2, f0_2, hidden_fields,
-                                              transient_fields=transient_fields)}
-                queue2 = deque([([], 0, _fast_deepcopy(game2))])
+                init_state = {fld: getattr(game2, fld, None) for fld in trigger_fields}
+                visited2 = {self._state_hash(game2, f0_2, hidden_fields=trigger_fields)}
+                fifo2 = 0
+                # Priority heap: (negative_trigger_delta, depth, fifo)
+                heap2 = [(0, 0, fifo2, _fast_deepcopy(game2), [])]
+                fifo2 += 1
                 t0_2 = time.time()
                 explored2 = 0
-                remaining2 = max(30, self.bfs_timeout - elapsed_p2)
+                remaining2 = max(60, self.bfs_timeout - elapsed_p2)
 
-                while queue2 and explored2 < max_states and (time.time() - t0_2) < remaining2:
-                    hist, depth, node_game2 = queue2.popleft()
+                while heap2 and explored2 < max_states and (time.time() - t0_2) < remaining2:
+                    neg_delta, depth, _, node_game2, hist = heapq.heappop(heap2)
                     for act_id, data in actions:
                         g2 = _fast_deepcopy(node_game2)
                         try:
@@ -602,20 +639,38 @@ class BFSSolver:
                         if not r.frame:
                             continue
                         f = np.array(r.frame[-1])
-                        h = self._state_hash(g2, f, hidden_fields,
-                                             transient_fields=transient_fields)
+                        h = self._state_hash(g2, f, hidden_fields=trigger_fields)
                         if h in visited2:
                             continue
                         visited2.add(h)
                         new_hist = hist + [(act_id, data)]
                         if (r.levels_completed > level_idx
                                 or g2._current_level_index > level_idx):
-                            logger.info(f"BFS L{level_idx}: SOLVED (hidden retry) in "
-                                        f"{len(new_hist)} actions")
+                            logger.info(f"BFS L{level_idx}: SOLVED (ACMD) in "
+                                        f"{len(new_hist)} actions ({explored2} explored, "
+                                        f"{time.time()-t0_2:.1f}s)")
                             self.solutions[level_idx] = new_hist
                             return new_hist
-                        if depth < 30:
-                            queue2.append((new_hist, depth + 1, g2))
+                        # Compute trigger delta: how much did trigger fields change?
+                        pixels_changed = np.sum(f0_2 != f) > 0
+                        trigger_delta = 0
+                        for tf in trigger_fields:
+                            cv = getattr(g2, tf, None)
+                            iv = init_state.get(tf)
+                            if isinstance(cv, (int, float)) and isinstance(iv, (int, float)):
+                                trigger_delta += abs(cv - iv)
+                            elif cv != iv:
+                                trigger_delta += 1
+                        # ACMD priority: PROMOTE if trigger changed, PRUNE if nothing changed
+                        if not pixels_changed and trigger_delta == 0:
+                            continue  # true no-op: prune completely
+                        priority = -trigger_delta  # lower = explored first
+                        fifo2 += 1
+                        if depth < 40:
+                            heapq.heappush(heap2, (priority, depth + 1, fifo2, g2, new_hist))
+
+                logger.info(f"BFS L{level_idx}: ACMD finished ({explored2} explored, "
+                            f"{len(visited2)} unique, {time.time()-t0_2:.1f}s)")
 
         # ---- Phase 4: IDDFS (deep directional games, low branching) ----
         elapsed_p3 = time.time() - t0
@@ -739,7 +794,8 @@ class BFSSolver:
             game_b = _fast_deepcopy(game)
             f0_b = f0
             beam = [(_fast_deepcopy(game_b), [])]
-            vis_b = {self._state_hash(game_b, f0_b, transient_fields=transient_fields)}
+            vis_b = {self._state_hash(game_b, f0_b, hidden_fields=trigger_fields,
+                                      transient_fields=transient_fields)}
             t0_b = time.time()
 
             for bd in range(60):
@@ -758,7 +814,8 @@ class BFSSolver:
                         if not r.frame:
                             continue
                         f = np.array(r.frame[-1])
-                        h = self._state_hash(g2, f, transient_fields=transient_fields)
+                        h = self._state_hash(g2, f, hidden_fields=trigger_fields,
+                                             transient_fields=transient_fields)
                         if h in vis_b:
                             continue
                         vis_b.add(h)
@@ -967,7 +1024,7 @@ class BFSSolver:
             new_hist = node.hist + [(act_id, data)]
 
             if (r.levels_completed > level_idx or g2._current_level_index > level_idx):
-                logger.info(f"BFS L{{level_idx}}: SOLVED (MCTS expand) in {{len(new_hist)}} actions")
+                logger.info(f"BFS L{level_idx}: SOLVED (MCTS expand) in {len(new_hist)} actions")
                 self.solutions[level_idx] = new_hist
                 return new_hist
 
@@ -996,7 +1053,7 @@ class BFSSolver:
                     sim_val = max(sim_val, pd + 0.1 / (1.0 + h2))
                     if (r2.levels_completed > level_idx or
                             sim_game._current_level_index > level_idx):
-                        logger.info(f"BFS L{{level_idx}}: SOLVED (MCTS rollout) in {{len(sim_hist)}} actions")
+                        logger.info(f"BFS L{level_idx}: SOLVED (MCTS rollout) in {len(sim_hist)} actions")
                         self.solutions[level_idx] = sim_hist
                         return sim_hist
                 except:
@@ -1009,7 +1066,7 @@ class BFSSolver:
                 n = n.parent
 
             if n_nodes >= 1500:
-                logger.info(f"BFS L{{level_idx}}: MCTS tree capped at {{n_nodes}} nodes")
+                logger.info(f"BFS L{level_idx}: MCTS tree capped at {n_nodes} nodes")
                 break
 
         return None
@@ -1103,6 +1160,9 @@ class ActionEffectAttention(nn.Module):
 
 
 class ForgeNet(nn.Module):
+    """CNN policy network for ARC-AGI-3. Architecture matches vanilla pretrained weights
+    (no CBAM — pretrained weights were trained without it, adding it causes shape mismatch
+    and corrupts downstream layers)."""
     def __init__(s, in_ch=26, g=64):
         super().__init__()
         s.g = g
@@ -1110,7 +1170,8 @@ class ForgeNet(nn.Module):
         s.c2 = nn.Conv2d(32, 64, 3, padding=1)
         s.c3 = nn.Conv2d(64, 128, 3, padding=1)
         s.c4 = nn.Conv2d(128, 256, 3, padding=1)
-        s.attn = CBAM(256)
+        # No CBAM: pretrained weights don't include attn.* keys, so CBAM layers
+        # would init random AND corrupt ar/af/ah features downstream.
         s.ar = nn.Conv2d(256, 64, 1)
         s.ap = nn.MaxPool2d(4, 4)
         s.af = nn.Linear(64 * 16 * 16, 256)
@@ -1129,7 +1190,6 @@ class ForgeNet(nn.Module):
         x = F.relu(s.c2(x))
         x = F.relu(s.c3(x))
         f = F.relu(s.c4(x))
-        f = s.attn(f)
         af = F.relu(s.ar(f))
         af = s.ap(af).reshape(f.size(0), -1)
         al = s.ah(s.dr(F.relu(s.af(af))))
