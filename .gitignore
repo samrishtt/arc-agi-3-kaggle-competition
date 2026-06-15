@@ -1,5 +1,6 @@
 # Kaggle credentials (project-local, never check in)
 .kaggle/
+.env
 
 # Python
 .venv/
