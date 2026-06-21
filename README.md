@@ -42,7 +42,7 @@ When search fails, the agent initializes ForgeNet — a 4-layer CNN with 26-chan
 | Early Baseline | 0.06 | May 2026 | Basic heuristic search |
 | No-Error Heartbeat | 0.26 | May 2026 | Adapted beam search + MCTS from Yaroslav Kholmirzayev |
 | Forge v3 (unmodified) | 0.18 | Jun 2026 | Clean Forge v3 by jihangli1121, BFS + online CNN |
-| **MASTER BASELINE v10** | **0.23** | Jun 2026 | 3 critical bug fixes (pickle, enum, sorting) |
+| **MASTER BASELINE v10** | **0.29** | Jun 2026 | 3 critical bug fixes (pickle, enum, sorting) |
 | **v11 (current)** | **TBD** | Jun 2026 | 5 architectural fixes (trigger-aware BFS, ACMD, CBAM removal) |
 
 ---
