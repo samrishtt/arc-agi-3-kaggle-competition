@@ -1,7 +1,7 @@
 # 🧠 ARC-AGI-3 Solver — Go-Explore Graph Exploration Agent (Forge v20 Patched)
 
 <p align="center">
-  <img src="docs/images/architecture.png" alt="Agent Architecture" width="700"/>
+  <img src="docs/images/go_explore_memory.png" alt="Go-Explore Memory Infographic" width="700"/>
 </p>
 
 > A high-performing, training-free agent for the [ARC Prize 2026](https://www.kaggle.com/competitions/arc-prize-2026-arc-agi-3) (ARC-AGI-3) competition. This agent implements a deterministic **Go-Explore style state-graph explorer** that optimizes Relative Human-Adjusted Efficiency (RHAE). Zero machine learning, zero PyTorch dependencies—pure robust graph exploration.
