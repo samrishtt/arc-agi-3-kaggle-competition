@@ -426,7 +426,7 @@ control, not a performance-improvement claim.
 
 ## CONTROL-001 - Record And Propagate The Local Analyzer Seed
 
-Status: Proposed. Awaiting approval before code changes.
+Status: Implemented. Awaiting the two Kaggle benchmark runs.
 
 Date: 2026-07-13
 
@@ -458,6 +458,18 @@ Expected code changes after approval:
 No changes planned: `inference/agent/prompts.py`, `inference/agent/tool_agent.py`,
 `inference/framework/solver.py`, sandbox code, game selection, model,
 temperature, token budget, concurrency, or runtime budget.
+
+Implementation: Added `LOCAL_ANALYZER_SEED ?= 1729` and exported it from the
+Makefile. The Kaggle setup renderer now embeds the variable and records it in
+`taaf_setup_env.json`. The existing `ToolAgent` request path receives the
+variable without modification.
+
+Local validation: The rendered setup script was checked with the default seed
+and an override (`314159`); both emitted the expected setup-environment entry,
+and no template placeholder remained. `py_compile` and `git diff --check`
+passed. This repository has no local `tests/` directory and this Windows
+workspace has no GNU Make binary, so the full Kaggle build/run remains the
+required end-to-end validation.
 
 Benchmark design:
 

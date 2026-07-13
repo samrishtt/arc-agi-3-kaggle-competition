@@ -62,3 +62,30 @@ scores, and the offline game list differs from the live competition rerun path.
 
 Follow-up: Run CONTROL-001 before beginning benchmark-improvement Experiment
 #001.
+
+## 2026-07-13 - Analyzer Seed Reproducibility Control
+
+Type: Experimental infrastructure
+Experiment ID: CONTROL-001
+Files Changed:
+- `Makefile`
+- `inference/framework/kaggle.py`
+- `docs/EXPERIMENTS.md`
+
+Architectural Area: Kaggle runtime configuration and evaluation reproducibility
+
+Summary: Added a default, overrideable `LOCAL_ANALYZER_SEED=1729` to the
+Kaggle deployment environment. The existing agent already forwards this
+variable to vLLM; this change makes the chosen value visible in generated run
+artifacts.
+
+Benchmark Impact: Not yet measured. This is a measurement control, not a
+claimed agent improvement.
+
+Risks: Request-level seeding may not remove every source of GPU or concurrent
+scheduling variance. A fixed seed may also happen to select an unrepresentative
+trajectory.
+
+Follow-up: Build the archive, run two matching offline Kaggle benchmarks, and
+append the per-game comparison to CONTROL-001. Do not begin score-improvement
+Experiment #001 until the control result is recorded.
