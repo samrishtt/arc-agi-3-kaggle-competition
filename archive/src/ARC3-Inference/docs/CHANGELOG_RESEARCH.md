@@ -40,3 +40,25 @@ Risks: Documentation may drift if source architecture changes.
 
 Follow-up: Append each completed experiment to `EXPERIMENTS.md`; append failed experiments to `FAILED_EXPERIMENTS.md`.
 
+## 2026-07-13 - Root Harness Baseline Evidence
+
+Type: Baseline characterization
+Experiment ID: BASELINE-000
+Files Changed:
+- `docs/EXPERIMENTS.md`
+
+Architectural Area: Evaluation and reproducibility
+
+Summary: Recorded a paired analysis of the supplied Tufa Labs and replication
+result archives. The source snapshots and visible run settings matched, but
+the one-pass offline framework means differed by 0.248867 and the gains were
+concentrated in a few games. No ARC implementation was changed.
+
+Benchmark Impact: None. This establishes that subsequent score claims require
+a fixed-seed or repeated-run comparison.
+
+Risks: The archives do not independently verify the reported Kaggle leaderboard
+scores, and the offline game list differs from the live competition rerun path.
+
+Follow-up: Run CONTROL-001 before beginning benchmark-improvement Experiment
+#001.

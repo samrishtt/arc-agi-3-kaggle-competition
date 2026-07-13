@@ -347,3 +347,143 @@ For every proposed experiment, before changing code:
 5. Estimate possible drawbacks.
 6. Wait for approval.
 
+## BASELINE-000 - Root Harness Replication And Variance Characterization
+
+Status: Completed baseline study. No ARC agent code or benchmark configuration was changed.
+
+Date: 2026-07-13
+
+Research question: Can a single one-pass Duck harness score distinguish an
+agent regression from ordinary sampling variance?
+
+Hypothesis: Two runs with the same archived source, model configuration,
+dataset, hardware class, and one-pass budget can produce materially different
+scores because the local analyzer is sampled without a fixed recorded seed.
+
+Motivation: The original Tufa Labs root notebook was reported to score 1.25 on
+Kaggle, while a direct submission by the current researcher was reported to
+score 0.86. Before optimizing the agent, we need to know whether that
+difference indicates a code/configuration problem or a stochastic trajectory
+difference.
+
+Evidence artifacts inspected:
+
+- Reference run: `C:\\Users\\Sam Pavi\\Downloads\\results.zip` (Tufa Labs).
+- Replication run: `C:\\Users\\Sam Pavi\\Downloads\\results (1).zip`.
+- Per-run artifacts: `benchmark.json`, `summary.txt`, `taaf_setup_env.json`,
+  and `git_status.txt`.
+
+Controlled conditions recorded by both archives:
+
+- 25 offline games, one pass, `HarnessSolver`, and 28 concurrent jobs.
+- Qwen 3.6 27B FP8 local analyzer served through vLLM.
+- `temperature=0.6`, `top_p=0.95`, `top_k=20`, 32,768-token context,
+  1,024 tool-output tokens, 30-second tool timeout, and 60-second yield.
+- Source snapshots: ARC3-Inference `aa69123` (dirty
+  `add-kaggle-share-flag`), TAAF `fe9f7c4`
+  (`submission-share-mode-bugfix`), and re-arc `57e46d619d`.
+- No fixed `LOCAL_ANALYZER_SEED` was recorded. The agent default is `-1`,
+  which leaves sampling behavior uncontrolled for this study.
+
+Observed offline benchmark results:
+
+| Metric | Tufa reference | Replication | Difference (reference - replication) |
+| --- | ---: | ---: | ---: |
+| Framework mean final score | 2.208516 | 1.959649 | +0.248867 |
+| Median final score | 0.08 | 0.00 | +0.08 |
+| Total actions | 4,896 | 3,947 | +949 |
+| Total analyzer tokens | 1,529,985 | 1,477,117 | +52,868 |
+| Wall-clock runtime | 2h 12m 46s | 2h 12m 12s | +34s |
+
+Per-game paired result: the reference was higher on 8 games, the replication
+was higher on 5 games, and 12 games were tied. The aggregate gap was
+concentrated in a small number of games, especially `ft09` (+7.393) and
+`cn04` (+4.762) for the reference. The replication was stronger on `re86`
+(+6.286), `sb26` (+1.338), `ka59` (+1.077), and `ar25` (+0.704).
+
+Interpretation: This evidence supports the hypothesis that the root harness
+has meaningful one-pass trajectory variance. It does not establish a
+systematic regression in the replication. The reported Kaggle scores (1.25
+reference and 0.86 replication) remain external reported outcomes and are not
+directly comparable to the offline framework means above.
+
+Baseline decision: Preserve the Tufa archive as the historical reference, but
+do not use either one-pass run as a promoted performance baseline. A candidate
+must be compared under a fixed-seed or multi-run protocol before claiming an
+improvement.
+
+Tokens: 1,529,985 reference; 1,477,117 replication.
+
+Runtime: 2h 12m 46s reference; 2h 12m 12s replication.
+
+Conclusion: Supported. Establish reproducibility controls before Experiment
+#001, then benchmark prompt changes against repeated, paired runs.
+
+Next experiment: CONTROL-001 - introduce a recorded analyzer seed as the only
+changed variable, verify repeated-run reproducibility, and document whether
+pinning the seed changes runtime or score. CONTROL-001 is a measurement
+control, not a performance-improvement claim.
+
+## CONTROL-001 - Record And Propagate The Local Analyzer Seed
+
+Status: Proposed. Awaiting approval before code changes.
+
+Date: 2026-07-13
+
+Hypothesis: Giving every local-analyzer request a declared fixed seed will make
+repeated one-pass runs substantially more reproducible than the unseeded root
+harness, without changing prompts, game selection, model, or compute budget.
+
+Reasoning: `ToolAgent` already sends `LOCAL_ANALYZER_SEED` to the vLLM request
+payload. The Kaggle deployment path does not currently export or serialize
+that variable, so the default `-1` is used. The paired archives in
+BASELINE-000 show that this leaves a one-pass comparison too noisy for
+research-grade score claims.
+
+Why this might improve ARC research: This is not expected to improve ARC score
+directly. It makes future improvements measurable, easier to reproduce, and
+less likely to be mistaken for a lucky trajectory.
+
+Single variable: Set and record `LOCAL_ANALYZER_SEED=1729` in the generated
+Kaggle analyzer environment. All other analyzer and benchmark settings remain
+unchanged.
+
+Expected code changes after approval:
+
+- `Makefile`: define and export `LOCAL_ANALYZER_SEED`, preserving an
+  environment override.
+- `inference/framework/kaggle.py`: embed the seed in the generated setup
+  script and write it to `taaf_setup_env.json`.
+
+No changes planned: `inference/agent/prompts.py`, `inference/agent/tool_agent.py`,
+`inference/framework/solver.py`, sandbox code, game selection, model,
+temperature, token budget, concurrency, or runtime budget.
+
+Benchmark design:
+
+- Build the Kaggle archive from the same root source snapshot after the two
+  deployment changes.
+- Run two identical offline Duck harness submissions with the same attached
+  datasets, internet disabled, RTX 6000 Pro GPU, one pass, 25 games, and
+  28 concurrent jobs.
+- Compare `benchmark.json` per-game scores, total actions, tokens, wall-clock
+  runtime, request logs, and the recorded setup environment.
+
+Success criterion: Both runs record seed `1729`; their per-game trajectories
+and summary metrics are identical or materially closer than the unseeded
+BASELINE-000 pair. If hardware scheduling still produces divergence, record
+the degree of divergence and retain multi-run paired evaluation as mandatory.
+
+Expected benchmark impact: 1/5 (measurement control, not a solver upgrade).
+
+Difficulty: 1/5.
+
+Risk: 1/5. A fixed seed can select an atypically weak or strong trajectory, so
+the seed must not be promoted as a score improvement without a multi-seed
+comparison.
+
+Expected time: Two Kaggle runs at approximately 2 hours 13 minutes each, plus
+archive build and result comparison.
+
+Rollback: Revert the two deployment-setting changes; `ToolAgent` continues to
+use its existing `-1` default.
