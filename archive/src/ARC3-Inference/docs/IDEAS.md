@@ -1,5 +1,40 @@
 # Research Ideas
 
+## Evidence From BASELINE-000
+
+The supplied Tufa reference and replication archives were compared at the
+per-action-event level on 2026-07-13. The reference completed 18 levels with
+4,896 actions and a 12.8% no-op rate; the replication completed 16 levels with
+3,947 actions and a 9.5% no-op rate. Therefore, lower action count or a lower
+no-op rate is not sufficient evidence of a better ARC policy. The near-term
+objective is more correct level transitions, not indiscriminate action
+suppression.
+
+The largest completed-level differences occurred on `vc33`, `sp80`, `sc25`,
+`ls20`, `cn04`, `re86`, `ka59`, and `bp35`. These games are the first trace
+mining set for prompt and planning hypotheses after CONTROL-001 establishes a
+reproducible baseline.
+
+## Candidate EXP-001 After CONTROL-001
+
+Title: Explicit action prediction and evidence contract.
+
+Hypothesis: Before executing an action or batch, requiring a compact statement
+of the predicted board change and a success/failure observation will reduce
+ungrounded repeated actions and improve level completion.
+
+Scope: Prompt-only change in `inference/agent/prompts.py`. It must not change
+the model, seed, search helpers, sandbox, runtime budget, or history format.
+
+Rationale: The root prompt already asks the agent to inspect and verify. This
+variant turns that broad advice into an explicit decision contract: identify
+the target state change, execute only an action that tests or advances it, and
+replan when the observed change contradicts the prediction.
+
+Expected impact: 2/5. Risk: 2/5. The extra instruction may consume reasoning
+tokens or make the agent over-cautious; benchmark impact must be measured on
+the fixed-seed baseline before promotion.
+
 ## Prompt
 
 - Compress the prompt into a smaller inspect-plan-act protocol.
@@ -100,4 +135,3 @@
 - Mine successful traces to generate reusable game-mechanic templates.
 - Evaluate text-only segmentation versus multimodal grid images.
 - Add a critic that predicts whether a planned action sequence is likely to be a no-op/HUD trap.
-
