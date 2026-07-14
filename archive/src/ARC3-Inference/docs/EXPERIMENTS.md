@@ -426,7 +426,7 @@ control, not a performance-improvement claim.
 
 ## CONTROL-001 - Record And Propagate The Local Analyzer Seed
 
-Status: Implemented. Awaiting the two Kaggle benchmark runs.
+Status: Completed. Failed as a reproducibility control.
 
 Date: 2026-07-13
 
@@ -499,3 +499,39 @@ archive build and result comparison.
 
 Rollback: Revert the two deployment-setting changes; `ToolAgent` continues to
 use its existing `-1` default.
+
+Observed benchmark results:
+
+- Run A artifact: `C:\\Users\\Sam Pavi\\Downloads\\results (2).zip`.
+- Run B artifact: `C:\\Users\\Sam Pavi\\Downloads\\results (3).zip`.
+- Both output `taaf_setup_env.json` files were byte-identical and recorded
+  `LOCAL_ANALYZER_SEED: "1729"`.
+- Both output `git_status.txt` files were byte-identical. Request payload logs
+  were not enabled, so the results verify the runtime environment but cannot
+  independently prove what vLLM accepted for every request.
+- Run A: mean score `1.52`, median `0.00`, 4,626 actions, 1,623,849 tokens,
+  and 2h 12m 24s runtime.
+- Run B: mean score `0.93`, median `0.00`, 5,635 actions, 1,607,492 tokens,
+  and 2h 12m 28s runtime.
+- The mean-score difference was `0.59`. Major outcomes reversed: `ft09` was
+  `22.26` in A and `0.00` in B, while `r11l` was `0.69` in A and `4.76` in B.
+- The trajectories diverged immediately: on `r11l` the first mouse action
+  differed; on `ft09` and `ar25` the first actions matched and the second
+  action differed.
+
+Conclusion: Rejected. Recording a request seed does not make this
+28-concurrent-job vLLM harness reproducible enough for a one-run performance
+claim. Likely remaining sources include concurrent request scheduling,
+GPU-kernel nondeterminism, or request-level seed handling by the server.
+
+Tokens: 1,623,849 (A); 1,607,492 (B).
+
+Runtime: 2h 12m 24s (A); 2h 12m 28s (B).
+
+Lessons learned: Treat every full benchmark result as a stochastic sample.
+Do not promote either A or B as the new baseline. Enable request logs for a
+small diagnostic slice before attributing a future score difference to code.
+
+Next experiment: CONTROL-002 - run a small, fixed development slice with one
+concurrent job and request logs enabled, keeping seed `1729`, to determine
+whether concurrency is the dominant remaining source of divergence.

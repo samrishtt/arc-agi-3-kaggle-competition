@@ -79,13 +79,14 @@ Kaggle deployment environment. The existing agent already forwards this
 variable to vLLM; this change makes the chosen value visible in generated run
 artifacts.
 
-Benchmark Impact: Not yet measured. This is a measurement control, not a
-claimed agent improvement.
+Benchmark Impact: The control did not make one-pass runs reproducible. Two
+same-seed runs scored 1.52 and 0.93 and diverged at the first or second action
+on representative games.
 
 Risks: Request-level seeding may not remove every source of GPU or concurrent
 scheduling variance. A fixed seed may also happen to select an unrepresentative
 trajectory.
 
-Follow-up: Build the archive, run two matching offline Kaggle benchmarks, and
-append the per-game comparison to CONTROL-001. Do not begin score-improvement
-Experiment #001 until the control result is recorded.
+Follow-up: CONTROL-001 is recorded as failed in `FAILED_EXPERIMENTS.md`.
+Run CONTROL-002 on a small logged, low-concurrency development slice before
+promoting any score-improvement result.
