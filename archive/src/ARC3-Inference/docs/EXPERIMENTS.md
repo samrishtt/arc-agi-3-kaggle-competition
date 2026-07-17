@@ -518,11 +518,16 @@ Observed benchmark results:
 - The trajectories diverged immediately: on `r11l` the first mouse action
   differed; on `ft09` and `ar25` the first actions matched and the second
   action differed.
+- Run A was submitted to the live Kaggle competition. The researcher reported
+  a public leaderboard score of `0.81` on 2026-07-17. This external score is
+  not directly comparable to the offline Duck-harness mean of `1.52`.
 
 Conclusion: Rejected. Recording a request seed does not make this
 28-concurrent-job vLLM harness reproducible enough for a one-run performance
 claim. Likely remaining sources include concurrent request scheduling,
 GPU-kernel nondeterminism, or request-level seed handling by the server.
+It also produced no demonstrated live-score improvement: `0.81` is below the
+researcher's earlier reported `0.86` submission.
 
 Tokens: 1,623,849 (A); 1,607,492 (B).
 
